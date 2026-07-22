@@ -1,0 +1,166 @@
+Option Explicit
+
+Sub FolderCompare()
+
+    '========================================
+    ' フォルダ設定
+    '========================================
+    Dim leftPath As String
+    Dim rightPath As String
+
+    leftPath = "C:\file1"
+    rightPath = "C:\file2"
+
+    Dim leftDict As Object
+    Dim rightDict As Object
+
+    Set leftDict = CreateObject("Scripting.Dictionary")
+    Set rightDict = CreateObject("Scripting.Dictionary")
+
+    Dim fso As Object
+    Set fso = CreateObject("Scripting.FileSystemObject")
+
+    CollectFiles fso.GetFolder(leftPath), leftPath, leftDict
+    CollectFiles fso.GetFolder(rightPath), rightPath, rightDict
+
+    Dim ws As Worksheet
+    Set ws = ActiveSheet
+    ws.Cells.Clear
+
+    Dim r As Long
+    r = 1
+
+    ws.Cells(r, 1) = "[左側]"
+    ws.Cells(r, 2) = leftPath
+    r = r + 2
+
+    ws.Cells(r, 1) = "[右側]"
+    ws.Cells(r, 2) = rightPath
+    r = r + 2
+
+    '============================
+    ' 左側のみ
+    '============================
+    ws.Cells(r, 1) = "[左側のみ]"
+    r = r + 1
+
+    OutputHeader ws, r
+    r = r + 1
+
+    Dim key As Variant
+
+    For Each key In leftDict.Keys
+
+        If Not rightDict.Exists(key) Then
+            OutputFile ws, r, leftDict(key), key
+            r = r + 1
+        End If
+
+    Next
+
+    r = r + 2
+
+    '============================
+    ' 右側のみ
+    '============================
+    ws.Cells(r, 1) = "[右側のみ]"
+    r = r + 1
+
+    OutputHeader ws, r
+    r = r + 1
+
+    For Each key In rightDict.Keys
+
+        If Not leftDict.Exists(key) Then
+            OutputFile ws, r, rightDict(key), key
+            r = r + 1
+        End If
+
+    Next
+
+    r = r + 2
+
+    '============================
+    ' 更新
+    '============================
+    ws.Cells(r, 1) = "[変更(右側の情報)]"
+    r = r + 1
+
+    OutputHeader ws, r
+    r = r + 1
+
+    Dim f1 As Object
+    Dim f2 As Object
+
+    For Each key In leftDict.Keys
+
+        If rightDict.Exists(key) Then
+
+            Set f1 = leftDict(key)
+            Set f2 = rightDict(key)
+
+            If f1.DateLastModified <> f2.DateLastModified Then
+
+                OutputFile ws, r, f2, key
+                r = r + 1
+
+            End If
+
+        End If
+
+    Next
+
+    ws.Columns.AutoFit
+
+    MsgBox "完了"
+
+End Sub
+
+'========================================
+' ファイル収集（再帰）
+'========================================
+Private Sub CollectFiles(folder As Object, root As String, dict As Object)
+
+    Dim f As Object
+    Dim subFolder As Object
+    Dim rel As String
+
+    For Each f In folder.Files
+
+        rel = Mid(f.Path, Len(root) + 2)
+
+        Set dict(rel) = f
+
+    Next
+
+    For Each subFolder In folder.SubFolders
+        CollectFiles subFolder, root, dict
+    Next
+
+End Sub
+
+'========================================
+' ヘッダー出力
+'========================================
+Private Sub OutputHeader(ws As Worksheet, row As Long)
+
+    ws.Cells(row, 1) = "相対パス"
+    ws.Cells(row, 2) = "ファイル名"
+    ws.Cells(row, 3) = "サイズ"
+    ws.Cells(row, 4) = "更新日"
+    ws.Cells(row, 5) = "更新時刻"
+
+End Sub
+
+'========================================
+' 1件出力
+'========================================
+Private Sub OutputFile(ws As Worksheet, row As Long, f As Object, ByVal rel As String)
+
+    ws.Cells(row, 1) = rel
+    ws.Cells(row, 2) = f.Name
+    ws.Cells(row, 3) = f.Size
+    ws.Cells(row, 4) = Format(f.DateLastModified, "yyyy/mm/dd")
+    ws.Cells(row, 5) = Format(f.DateLastModified, "hh:nn:ss")
+
+End Sub
