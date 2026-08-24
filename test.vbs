@@ -1,5 +1,5 @@
 Sub CreateExcels()
-    ' =IF(B3="", "", LET(t, TRIM(B3), p, FIND(".", t), LEFT(B3, LEN(B3)-LEN(t)) & (LEFT(t, p-1)+1) & MID(t, p, 9999)))
+
     Application.ScreenUpdating = False   ' 画面更新停止
     Application.Calculation = xlCalculationManual ' 自動計算OFF
     Application.EnableEvents = False    ' イベント停止
