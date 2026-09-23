@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<root>
+	<situation>
+		<title>タイトル例</title>
+		<name>前</name>
+		<name>途中</name>
+		<name>途中2</name>
+		<name>後</name>
+	</situation>
+	<situation>
+		<title>タイトル例2</title>
+		<name>前です</name>
+		<name>後です</name>
+	</situation>
+	
+</root>
