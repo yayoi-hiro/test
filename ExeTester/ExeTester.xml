@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<TaskFlowTool>
+
+	<LogFiles>
+		<File Name="実行ログ" Path="C:\Users\miyuj\Desktop\logput\temp.txt" />
+		<File Name="エラーログ" Path="C:\Work\Log\error.log" />
+		<File Name="通信ログ" Path="C:\Work\Log\communication.log" />
+	</LogFiles>
+
+	<ConfigFiles>
+		<File Name="アプリ設定" Path="C:\Work\Config\AppConfig.xml" />
+		<File Name="ユーザー設定" Path="C:\Work\Config\UserConfig.xml" />
+	</ConfigFiles>
+
+	<Executables>
+		<Exe Name="rightsout" Path="C:\Users\miyuj\Desktop\rightsout.exe" />
+		<Exe Name="アプリB" Path="C:\Work\App\AppB.exe" />
+		<Exe Name="アプリC" Path="C:\Work\App\AppC.exe" />
+	</Executables>
+
+</TaskFlowTool>
