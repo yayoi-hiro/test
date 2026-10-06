@@ -1,0 +1,517 @@
+
+Option Explicit
+
+'===========================================================
+' Windows API 宣言 (BCrypt API)
+'===========================================================
+#If VBA7 Then
+
+Private Declare PtrSafe Function BCryptOpenAlgorithmProvider Lib "bcrypt.dll" ( _
+    ByRef phAlgorithm As LongPtr, _
+    ByVal pszAlgId As LongPtr, _
+    ByVal pszImplementation As LongPtr, _
+    ByVal dwFlags As Long) As Long
+
+Private Declare PtrSafe Function BCryptCloseAlgorithmProvider Lib "bcrypt.dll" ( _
+    ByVal hAlgorithm As LongPtr, _
+    ByVal dwFlags As Long) As Long
+
+Private Declare PtrSafe Function BCryptSetProperty Lib "bcrypt.dll" ( _
+    ByVal hObject As LongPtr, _
+    ByVal pszProperty As LongPtr, _
+    ByVal pbInput As LongPtr, _
+    ByVal cbInput As Long, _
+    ByVal dwFlags As Long) As Long
+
+Private Declare PtrSafe Function BCryptGetProperty Lib "bcrypt.dll" ( _
+    ByVal hObject As LongPtr, _
+    ByVal pszProperty As LongPtr, _
+    ByRef pbOutput As Any, _
+    ByVal cbOutput As Long, _
+    ByRef pcbResult As Long, _
+    ByVal dwFlags As Long) As Long
+
+Private Declare PtrSafe Function BCryptGenerateSymmetricKey Lib "bcrypt.dll" ( _
+    ByVal hAlgorithm As LongPtr, _
+    ByRef phKey As LongPtr, _
+    ByVal pbKeyObject As LongPtr, _
+    ByVal cbKeyObject As Long, _
+    ByRef pbSecret As Any, _
+    ByVal cbSecret As Long, _
+    ByVal dwFlags As Long) As Long
+
+Private Declare PtrSafe Function BCryptDestroyKey Lib "bcrypt.dll" ( _
+    ByVal hKey As LongPtr) As Long
+
+Private Declare PtrSafe Function BCryptDecrypt Lib "bcrypt.dll" ( _
+    ByVal hKey As LongPtr, _
+    ByRef pbInput As Any, _
+    ByVal cbInput As Long, _
+    ByVal pPaddingInfo As LongPtr, _
+    ByRef pbIV As Any, _
+    ByVal cbIV As Long, _
+    ByRef pbOutput As Any, _
+    ByVal cbOutput As Long, _
+    ByRef pcbResult As Long, _
+    ByVal dwFlags As Long) As Long
+
+#Else
+
+Private Declare Function BCryptOpenAlgorithmProvider Lib "bcrypt.dll" ( _
+    ByRef phAlgorithm As Long, _
+    ByVal pszAlgId As Long, _
+    ByVal pszImplementation As Long, _
+    ByVal dwFlags As Long) As Long
+
+Private Declare Function BCryptCloseAlgorithmProvider Lib "bcrypt.dll" ( _
+    ByVal hAlgorithm As Long, _
+    ByVal dwFlags As Long) As Long
+
+Private Declare Function BCryptSetProperty Lib "bcrypt.dll" ( _
+    ByVal hObject As Long, _
+    ByVal pszProperty As Long, _
+    ByVal pbInput As Long, _
+    ByVal cbInput As Long, _
+    ByVal dwFlags As Long) As Long
+
+Private Declare Function BCryptGetProperty Lib "bcrypt.dll" ( _
+    ByVal hObject As Long, _
+    ByVal pszProperty As Long, _
+    ByRef pbOutput As Any, _
+    ByVal cbOutput As Long, _
+    ByRef pcbResult As Long, _
+    ByVal dwFlags As Long) As Long
+
+Private Declare Function BCryptGenerateSymmetricKey Lib "bcrypt.dll" ( _
+    ByVal hAlgorithm As Long, _
+    ByRef phKey As Long, _
+    ByVal pbKeyObject As Long, _
+    ByVal cbKeyObject As Long, _
+    ByRef pbSecret As Any, _
+    ByVal cbSecret As Long, _
+    ByVal dwFlags As Long) As Long
+
+Private Declare Function BCryptDestroyKey Lib "bcrypt.dll" ( _
+    ByVal hKey As Long) As Long
+
+Private Declare Function BCryptDecrypt Lib "bcrypt.dll" ( _
+    ByVal hKey As Long, _
+    ByRef pbInput As Any, _
+    ByVal cbInput As Long, _
+    ByVal pPaddingInfo As Long, _
+    ByRef pbIV As Any, _
+    ByVal cbIV As Long, _
+    ByRef pbOutput As Any, _
+    ByVal cbOutput As Long, _
+    ByRef pcbResult As Long, _
+    ByVal dwFlags As Long) As Long
+
+#End If
+
+
+'===========================================================
+' BCrypt 定数
+'===========================================================
+Private Const BCRYPT_AES_ALGORITHM As String = "AES"
+Private Const BCRYPT_CHAINING_MODE As String = "ChainingMode"
+Private Const BCRYPT_CHAIN_MODE_CBC As String = "ChainingModeCBC"
+Private Const BCRYPT_OBJECT_LENGTH As String = "ObjectLength"
+
+Private Const BCRYPT_BLOCK_PADDING As Long = &H1
+Private Const STATUS_SUCCESS As Long = 0
+
+
+'===========================================================
+' メイン処理
+'
+' B1 : 暗号化ファイルのパス
+' B2 : AES-256キー（64文字のHEX）
+' B3 : 復号結果
+'
+' ファイル形式
+' [先頭16byte : IV][17byte以降 : AES暗号文]
+'===========================================================
+Public Sub TestDecrypt2()
+
+    Dim filePath As String
+    Dim keyHex As String
+    Dim encryptedData() As Byte
+    Dim iv() As Byte
+    Dim cipher() As Byte
+
+    On Error GoTo ErrorHandler
+
+    filePath = Range("B1").value
+    keyHex = Range("B2").value
+
+    If Len(filePath) = 0 Then
+        Err.Raise vbObjectError + 1, , "ファイルパスが指定されていません。"
+    End If
+
+    If Dir$(filePath) = "" Then
+        Err.Raise vbObjectError + 2, , "指定されたファイルが存在しません。" & vbCrLf & filePath
+    End If
+
+    If Len(keyHex) = 0 Then
+        Err.Raise vbObjectError + 3, , "AESキーが指定されていません。"
+    End If
+
+    ' 暗号ファイル読み込み
+    encryptedData = ReadBinaryFile(filePath)
+
+    ' IV + 暗号文のチェック
+    If (UBound(encryptedData) + 1) < 32 Then
+        Err.Raise vbObjectError + 4, , "暗号化ファイルのサイズが不正です。"
+    End If
+
+    ' IVと暗号文を分離
+    iv = GetIV(encryptedData)
+    cipher = GetCipher(encryptedData)
+
+    ' AES復号
+    Range("B3").value = AESDecrypt(cipher, keyHex, iv)
+
+    Exit Sub
+
+ErrorHandler:
+    Range("B3").value = "#ERROR: " & Err.Description
+
+End Sub
+
+
+'===========================================================
+' バイナリファイル読み込み
+'===========================================================
+Private Function ReadBinaryFile(ByVal filePath As String) As Byte()
+
+    Dim data() As Byte
+    Dim fNum As Integer
+    Dim fileSize As Long
+
+    fNum = FreeFile
+
+    Open filePath For Binary Access Read As #fNum
+
+    fileSize = LOF(fNum)
+
+    If fileSize <= 0 Then
+        Close #fNum
+        Err.Raise vbObjectError + 10, , "ファイルが空です。"
+    End If
+
+    ReDim data(0 To fileSize - 1)
+
+    Get #fNum, , data
+
+    Close #fNum
+
+    ReadBinaryFile = data
+
+End Function
+
+
+'===========================================================
+' 先頭16byteをIVとして取得
+'===========================================================
+Private Function GetIV(ByRef data() As Byte) As Byte()
+
+    Dim iv(0 To 15) As Byte
+    Dim i As Long
+
+    If (UBound(data) + 1) < 16 Then
+        Err.Raise vbObjectError + 20, , "IVを取得できるだけのデータがありません。"
+    End If
+
+    For i = 0 To 15
+        iv(i) = data(i)
+    Next i
+
+    GetIV = iv
+
+End Function
+
+
+'===========================================================
+' 16byte以降を暗号文として取得
+'===========================================================
+Private Function GetCipher(ByRef data() As Byte) As Byte()
+
+    Dim cipher() As Byte
+    Dim i As Long
+    Dim cipherLength As Long
+
+    cipherLength = (UBound(data) + 1) - 16
+
+    If cipherLength <= 0 Then
+        Err.Raise vbObjectError + 21, , "暗号文がありません。"
+    End If
+
+    If cipherLength Mod 16 <> 0 Then
+        Err.Raise vbObjectError + 22, , "AES-CBCの暗号文サイズが16byte単位ではありません。"
+    End If
+
+    ReDim cipher(0 To cipherLength - 1)
+
+    For i = 16 To UBound(data)
+        cipher(i - 16) = data(i)
+    Next i
+
+    GetCipher = cipher
+
+End Function
+
+
+'===========================================================
+' AES-256 / CBC / PKCS7 復号
+'===========================================================
+Private Function AESDecrypt(ByRef cipherBytes() As Byte, _
+                            ByVal keyHex As String, _
+                            ByRef ivBytes() As Byte) As String
+
+    Dim hAlg As LongPtr
+    Dim hKey As LongPtr
+
+    Dim keyBytes() As Byte
+    Dim keyObject() As Byte
+    Dim plainData() As Byte
+    Dim ivWork() As Byte
+
+    Dim objectLength As Long
+    Dim resultLength As Long
+    Dim cipherLen As Long
+    Dim keyLen As Long
+
+    Dim status As Long
+    Dim modeStr As String
+
+    On Error GoTo ErrorHandler
+
+    '-------------------------------------------------------
+    ' キー変換
+    '-------------------------------------------------------
+    keyBytes = HexStringToBytes(keyHex)
+
+    keyLen = UBound(keyBytes) - LBound(keyBytes) + 1
+
+    If keyLen <> 32 Then
+        Err.Raise vbObjectError + 30, , "AES-256のキーは32byte必要です。現在: " & keyLen & "byte"
+    End If
+
+    '-------------------------------------------------------
+    ' IVチェック
+    '-------------------------------------------------------
+    If UBound(ivBytes) - LBound(ivBytes) + 1 <> 16 Then
+        Err.Raise vbObjectError + 31, , "IVは16byte必要です。"
+    End If
+
+    '-------------------------------------------------------
+    ' 暗号文サイズ
+    '-------------------------------------------------------
+    cipherLen = UBound(cipherBytes) - LBound(cipherBytes) + 1
+
+    If cipherLen = 0 Then
+        Err.Raise vbObjectError + 32, , "暗号文が空です。"
+    End If
+
+    If cipherLen Mod 16 <> 0 Then
+        Err.Raise vbObjectError + 33, , "暗号文のサイズが16byte単位ではありません。"
+    End If
+
+    '-------------------------------------------------------
+    ' 1. AESプロバイダを開く
+    '-------------------------------------------------------
+    status = BCryptOpenAlgorithmProvider( _
+        hAlg, _
+        StrPtr(BCRYPT_AES_ALGORITHM), _
+        0, _
+        0)
+
+    If status <> STATUS_SUCCESS Then
+        Err.Raise vbObjectError + 34, , "AESアルゴリズムの初期化に失敗しました。NTSTATUS: 0x" & hex$(status)
+    End If
+
+    '-------------------------------------------------------
+    ' 2. CBCモードに設定
+    '-------------------------------------------------------
+    modeStr = BCRYPT_CHAIN_MODE_CBC & vbNullChar
+
+    status = BCryptSetProperty( _
+        hAlg, _
+        StrPtr(BCRYPT_CHAINING_MODE), _
+        StrPtr(modeStr), _
+        LenB(modeStr), _
+        0)
+
+    If status <> STATUS_SUCCESS Then
+        Err.Raise vbObjectError + 35, , "CBCモードの設定に失敗しました。NTSTATUS: 0x" & hex$(status)
+    End If
+
+    '-------------------------------------------------------
+    ' 3. AESキーオブジェクトのサイズ取得
+    '-------------------------------------------------------
+    status = BCryptGetProperty( _
+        hAlg, _
+        StrPtr(BCRYPT_OBJECT_LENGTH), _
+        objectLength, _
+        4, _
+        resultLength, _
+        0)
+
+    If status <> STATUS_SUCCESS Then
+        Err.Raise vbObjectError + 36, , "AESキーオブジェクトのサイズ取得に失敗しました。NTSTATUS: 0x" & hex$(status)
+    End If
+
+    ReDim keyObject(0 To objectLength - 1)
+
+    '-------------------------------------------------------
+    ' 4. AESキー生成
+    '-------------------------------------------------------
+    status = BCryptGenerateSymmetricKey( _
+        hAlg, _
+        hKey, _
+        VarPtr(keyObject(0)), _
+        objectLength, _
+        keyBytes(0), _
+        keyLen, _
+        0)
+
+    If status <> STATUS_SUCCESS Then
+        Err.Raise vbObjectError + 37, , "AESキーの生成に失敗しました。NTSTATUS: 0x" & hex$(status)
+    End If
+
+    '-------------------------------------------------------
+    ' 5. 暗号文と同じサイズで平文バッファを確保して一括復号
+    '-------------------------------------------------------
+    ReDim plainData(0 To cipherLen - 1)
+
+    ' API内部による破壊を防ぐためIVの作業用コピーを作成
+    ivWork = ivBytes
+
+    status = BCryptDecrypt( _
+        hKey, _
+        cipherBytes(0), _
+        cipherLen, _
+        0, _
+        ivWork(0), _
+        16, _
+        plainData(0), _
+        cipherLen, _
+        resultLength, _
+        BCRYPT_BLOCK_PADDING)
+
+    If status <> STATUS_SUCCESS Then
+        Err.Raise vbObjectError + 38, , "AES復号に失敗しました。NTSTATUS: 0x" & hex$(status)
+    End If
+
+    If resultLength <= 0 Then
+        Err.Raise vbObjectError + 39, , "復号結果が空です。"
+    End If
+    
+    '-------------------------------------------------------
+    ' 6. パディング除去後のサイズに合わせて配列縮小、UTF-8変換
+    '-------------------------------------------------------
+    ReDim Preserve plainData(0 To resultLength - 1)
+
+    AESDecrypt = Utf8BytesToString(plainData)
+
+Cleanup:
+    If hKey <> 0 Then BCryptDestroyKey hKey
+    If hAlg <> 0 Then BCryptCloseAlgorithmProvider hAlg, 0
+
+    Exit Function
+
+ErrorHandler:
+
+    If hKey <> 0 Then BCryptDestroyKey hKey
+    If hAlg <> 0 Then BCryptCloseAlgorithmProvider hAlg, 0
+
+    Err.Raise Err.Number, Err.Source, Err.Description
+
+End Function
+
+
+'===========================================================
+' HEX文字列をByte配列へ変換
+'===========================================================
+Private Function HexStringToBytes(ByVal hex As String) As Byte()
+
+    Dim bytes() As Byte
+    Dim i As Long
+
+    hex = Replace(hex, " ", "")
+    hex = Replace(hex, "-", "")
+
+    If Len(hex) = 0 Then
+        Err.Raise vbObjectError + 50, , "AESキーが空です。"
+    End If
+
+    If Len(hex) Mod 2 <> 0 Then
+        Err.Raise vbObjectError + 51, , "HEX文字列の長さが不正です。"
+    End If
+
+    ReDim bytes(0 To Len(hex) \ 2 - 1)
+
+    For i = 0 To UBound(bytes)
+        If Not IsHexPair(Mid$(hex, i * 2 + 1, 2)) Then
+            Err.Raise vbObjectError + 52, , "AESキーに不正なHEX文字が含まれています。"
+        End If
+
+        bytes(i) = CByte("&H" & Mid$(hex, i * 2 + 1, 2))
+    Next i
+
+    HexStringToBytes = bytes
+
+End Function
+
+
+'===========================================================
+' HEX 2文字のチェック
+'===========================================================
+Private Function IsHexPair(ByVal value As String) As Boolean
+
+    Dim i As Long
+    Dim c As String
+
+    If Len(value) <> 2 Then Exit Function
+
+    For i = 1 To 2
+        c = UCase$(Mid$(value, i, 1))
+
+        If InStr(1, "0123456789ABCDEF", c, vbBinaryCompare) = 0 Then
+            Exit Function
+        End If
+    Next i
+
+    IsHexPair = True
+
+End Function
+
+
+'===========================================================
+' UTF-8バイト配列を文字列へ変換
+'===========================================================
+Private Function Utf8BytesToString(ByRef bytes() As Byte) As String
+
+    Dim stream As Object
+
+    Set stream = CreateObject("ADODB.Stream")
+
+    With stream
+        .Type = 1
+        .Open
+        .Write bytes
+        .Position = 0
+        .Type = 2
+        .Charset = "utf-8"
+
+        Utf8BytesToString = .ReadText
+
+        .Close
+    End With
+
+    Set stream = Nothing
+
+End Function
+
+
+
