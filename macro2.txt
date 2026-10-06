@@ -55,6 +55,14 @@ Private Declare PtrSafe Function BCryptDecrypt Lib "bcrypt.dll" ( _
     ByRef pcbResult As Long, _
     ByVal dwFlags As Long) As Long
 
+Private Declare PtrSafe Function MultiByteToWideChar Lib "kernel32.dll" ( _
+    ByVal CodePage As Long, _
+    ByVal dwFlags As Long, _
+    ByRef lpMultiByteStr As Any, _
+    ByVal cbMultiByte As Long, _
+    ByVal lpWideCharStr As LongPtr, _
+    ByVal cchWideChar As Long) As Long
+
 #Else
 
 Private Declare Function BCryptOpenAlgorithmProvider Lib "bcrypt.dll" ( _
@@ -105,6 +113,14 @@ Private Declare Function BCryptDecrypt Lib "bcrypt.dll" ( _
     ByVal cbOutput As Long, _
     ByRef pcbResult As Long, _
     ByVal dwFlags As Long) As Long
+    
+Private Declare Function MultiByteToWideChar Lib "kernel32.dll" ( _
+    ByVal CodePage As Long, _
+    ByVal dwFlags As Long, _
+    ByRef lpMultiByteStr As Any, _
+    ByVal cbMultiByte As Long, _
+    ByVal lpWideCharStr As Long, _
+    ByVal cchWideChar As Long) As Long
 
 #End If
 
@@ -492,26 +508,33 @@ End Function
 '===========================================================
 Private Function Utf8BytesToString(ByRef bytes() As Byte) As String
 
-    Dim stream As Object
+    Dim byteCount As Long
+    Dim charCount As Long
+    Dim result As String
 
-    Set stream = CreateObject("ADODB.Stream")
+    byteCount = UBound(bytes) - LBound(bytes) + 1
 
-    With stream
-        .Type = 1
-        .Open
-        .Write bytes
-        .Position = 0
-        .Type = 2
-        .Charset = "utf-8"
+    If byteCount <= 0 Then
+        Utf8BytesToString = ""
+        Exit Function
+    End If
 
-        Utf8BytesToString = .ReadText
+    ' UTF-8 → UTF-16の必要文字数を取得
+    charCount = MultiByteToWideChar(65001, 0, bytes(LBound(bytes)), byteCount, 0, 0)
 
-        .Close
-    End With
+    If charCount = 0 Then
+        Err.Raise vbObjectError + 100, , "UTF-8の変換に失敗しました。"
+    End If
 
-    Set stream = Nothing
+    result = String$(charCount, vbNullChar)
+
+    ' UTF-8 → UTF-16へ変換
+    If MultiByteToWideChar(65001, 0, bytes(LBound(bytes)), byteCount, StrPtr(result), charCount) = 0 Then
+        Err.Raise vbObjectError + 101, , "UTF-8の変換に失敗しました。"
+    End If
+
+    Utf8BytesToString = result
 
 End Function
-
 
 
